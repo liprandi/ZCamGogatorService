@@ -43,11 +43,12 @@ ZGetDataThread::~ZGetDataThread()
     if (m_run)
     {
         m_quit = true;
-        while (m_quit || m_run)
+        while(m_run)
             sleep(1);
+ 
+        GoDestroy(system);
+        GoDestroy(api);
     }
-    GoDestroy(system);
-    GoDestroy(api);
 }
 
 void ZGetDataThread::init(const QString& addr)
@@ -138,10 +139,13 @@ void ZGetDataThread::run()
                             qDebug() << "\tEncoder position at leading edge: " << stamp->encoder;
                             qDebug() << "\tFrame index: " << stamp->frameIndex;
                         }
+                    }
+                    break;
+                    case GO_DATA_MESSAGE_TYPE_UNIFORM_SURFACE:
+                    {
+                        qDebug() << "----GO_DATA_MESSAGE_TYPE_UNIFORM_SURFACE: " << i;
                         dt = QDateTime::currentDateTime();
                         dtstr = dt.toString("yyyy-MM-dd hh:mm:ss");
-                        pictstr = m_job + dt.toString("_yyyyMMddhhmmss.obj");
-                        readCollectionTools(sensor, &collection_tools);
                         char filename[256];
                         uint size;
                         kBool changed;
@@ -150,17 +154,15 @@ void ZGetDataThread::run()
                             m_job = QString(filename).replace(".job", "", Qt::CaseInsensitive);
                             m_unsaved = changed;
                         }
-                    }
-                    break;
-                    case GO_DATA_MESSAGE_TYPE_UNIFORM_SURFACE:
-                    {
-                        qDebug() << "----GO_DATA_MESSAGE_TYPE_UNIFORM_SURFACE: " << i;
+                        pictstr = m_job + dt.toString("_yyyyMMddhhmmss.obj");
+                        readCollectionTools(sensor, &collection_tools);
                         getImage(dataObj, pictstr);
                         ZMeasurement data;
                         data.dt = dtstr;
-                        data.id = 9999;
+                        data.id = m_unsaved ? 9998 : 9999;
                         data.value = 0;
-                        data.decision = true;
+                        data.decision = GO_DECISION_PASS;
+                        data.decisionCode = GO_DECISION_CODE_OK;
                         data.description = pictstr;
                         m_data->enqueue(data);
                     }
@@ -181,7 +183,8 @@ void ZGetDataThread::run()
                             data.dt = dtstr;
                             data.id = l;
                             data.value = measurementData->value;
-                            data.decision = measurementData->value != 0;
+                            data.decision = measurementData->decision;
+                            data.decisionCode = measurementData->decisionCode;
                             //2. Retrieve the measurement from the set of tools using measurement ID
 
                             if (collection_tools != kNULL && (measurement = GoTools_FindMeasurementById(collection_tools, l)) != kNULL)

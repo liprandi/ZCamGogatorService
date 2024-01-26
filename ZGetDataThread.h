@@ -8,7 +8,8 @@ struct ZMeasurement
     QString dt;
     int     id = 0;                 // id = 9999 means picture file name
     double  value = 0.;
-    bool    decision = false;
+    bool    decision = GO_DECISION_PASS;
+    bool    decisionCode = GO_DECISION_CODE_OK;
     QString description;        // in case of picture here is file name
 };
 
