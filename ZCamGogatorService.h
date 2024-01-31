@@ -4,6 +4,8 @@
 #include "ui_ZCamGogatorService.h"
 #include  "ZGetDataThread.h"
 #include  "ZQueue.h"
+#include  "ZDatabase.h"
+
 
 
 class ZCamGogatorService : public QMainWindow
@@ -17,6 +19,8 @@ public:
 protected:
     void timerEvent(QTimerEvent* event) override;
 private:
+    void writeRecord(const char* table, const ZMeasurement& data);
+private:
     Ui::ZCamGogatorServiceClass ui;
     ZQueue<ZMeasurement> m_data_rr;
     ZQueue<ZMeasurement> m_data_fr;
@@ -26,4 +30,5 @@ private:
     ZGetDataThread m_fr;    // op050 front right door
     ZGetDataThread m_rl;    // op090 rear left door
     ZGetDataThread m_fl;    // op0100 front left door
- };
+    ZDatabase m_database;    // MariaDB connection
+};

@@ -20,7 +20,7 @@ typedef struct ProfilePoint
     double x;   // x-coordinate in engineering units (mm) - position along laser line
     double y;   // y-coordinate in engineering units (mm) - position along the direction of travel
     double z;   // z-coordinate in engineering units (mm) - height (at the given x position)
-    unsigned char intensity;
+    unsigned long index;
 } ProfilePoint;
 
 ZGetDataThread::ZGetDataThread(ZQueue<ZMeasurement>* queue, QObject* parent) :
@@ -51,10 +51,11 @@ ZGetDataThread::~ZGetDataThread()
     }
 }
 
-void ZGetDataThread::init(const QString& addr)
+void ZGetDataThread::init(const QString& addr, const QString& imagesDir)
 {
     unsigned int i, j, k;
 
+    m_dir = imagesDir;
     // construct Gocator API Library
     if ((status = GoSdk_Construct(&api)) != kOK)
     {
@@ -116,6 +117,14 @@ void ZGetDataThread::run()
 
     while (!m_quit)
     {
+        if (sensor == kNULL || !GoSensor_IsConnected(sensor))
+        {
+            if (!reconnect())
+            {
+                sleep(1s);
+                continue;
+            }
+        }
         while (GoSystem_ReceiveData(system, &dataset, RECEIVE_TIMEOUT) == kOK)
         {
             // each result can have multiple data items
@@ -128,17 +137,7 @@ void ZGetDataThread::run()
                 {
                     case GO_DATA_MESSAGE_TYPE_STAMP:
                     {
-                        qDebug() << "----GO_DATA_MESSAGE_TYPE_STAMP: " << i;
-                        GoStampMsg stampMsg = dataObj;
-                        qDebug() << "\tStamp Message batch count: " << (k32u)GoStampMsg_Count(stampMsg);
-
-                        for (j = 0; j < GoStampMsg_Count(stampMsg); j++)
-                        {
-                            GoStamp* stamp = GoStampMsg_At(stampMsg, j);
-                            qDebug() << "\tTimestamp: " << stamp->timestamp;
-                            qDebug() << "\tEncoder position at leading edge: " << stamp->encoder;
-                            qDebug() << "\tFrame index: " << stamp->frameIndex;
-                        }
+                        timestamp(dataObj);
                     }
                     break;
                     case GO_DATA_MESSAGE_TYPE_UNIFORM_SURFACE:
@@ -154,7 +153,7 @@ void ZGetDataThread::run()
                             m_job = QString(filename).replace(".job", "", Qt::CaseInsensitive);
                             m_unsaved = changed;
                         }
-                        pictstr = m_job + dt.toString("_yyyyMMddhhmmss.obj");
+                        pictstr = m_dir + m_job + dt.toString("_yyyyMMddhhmmss.obj");
                         readCollectionTools(sensor, &collection_tools);
                         getImage(dataObj, pictstr);
                         ZMeasurement data;
@@ -169,36 +168,16 @@ void ZGetDataThread::run()
                     break;
                     case GO_DATA_MESSAGE_TYPE_MEASUREMENT:
                     {
-                        qDebug() << "----GO_DATA_MESSAGE_TYPE_MEASUREMENT: " << i;
-                        GoMeasurementMsg measurementMsg = dataObj;
-
-                        qDebug() << "Measurement Message batch count: ", (k32u)GoMeasurementMsg_Count(measurementMsg);
-
-                        for (k = 0; k < GoMeasurementMsg_Count(measurementMsg); ++k)
-                        {
-                            ZMeasurement data;
-                            measurementData = GoMeasurementMsg_At(measurementMsg, k);
-                            // 1. Retrieve the measurement ID
-                            int l = GoMeasurementMsg_Id(measurementMsg);
-                            data.dt = dtstr;
-                            data.id = l;
-                            data.value = measurementData->value;
-                            data.decision = measurementData->decision;
-                            data.decisionCode = measurementData->decisionCode;
-                            //2. Retrieve the measurement from the set of tools using measurement ID
-
-                            if (collection_tools != kNULL && (measurement = GoTools_FindMeasurementById(collection_tools, l)) != kNULL)
-                            {
-                                data.description = GoMeasurement_Name(measurement);
-                            }
-                            else
-                            {
-                                data.description = "---";
-                            }
-                            m_data->enqueue(data);
-                        }
+                        measure(dataObj, dtstr);
                     }
                     break;
+                /*     case GO_DATA_MESSAGE_TYPE_FEATURE_POINT:
+                    {
+                        qDebug() << "----GO_DATA_MESSAGE_TYPE_FEATURE_POINT: " << i;
+                        GoPointFeatureMsg featurePointMsg = dataObj;
+
+
+                    }*/
                     default:
                     {
                         qDebug() << "----" << type << ": " << i;
@@ -206,15 +185,103 @@ void ZGetDataThread::run()
                     break;
                 }
             }
+            //free memory arrays
             GoDestroy(dataset);
             dataset = kNULL;
-            //free memory arrays
         }
         sleep(10ms);
     }
     m_run = false;
     m_quit = false;
 }
+bool ZGetDataThread::reconnect()
+{
+    unsigned int i, j, k;
+
+    // obtain GoSensor object by sensor IP address
+    if ((status = GoSystem_FindSensorByIpAddress(system, &ipAddress, &sensor)) != kOK)
+    {
+        QMessageBox::information(NULL, tr("GoSystem_FindSensorByIpAddress"),
+            QString(tr("Error: GoSystem_FindSensorByIpAddress:%1?")).arg(status),
+            QMessageBox::Discard);
+        sensor = kNULL;
+        return false;
+    }
+
+    // create connection to GoSensor object
+    if ((status = GoSensor_Connect(sensor)) != kOK)
+    {
+        QMessageBox::information(NULL, tr("GoSdk connection error"),
+            QString(tr("Error: GoSensor_Connect:%1?")).arg(status),
+            QMessageBox::Discard);
+        sensor = kNULL;
+        return false;
+    }
+
+    // enable sensor data channel
+    if ((status = GoSystem_EnableData(system, kTRUE)) != kOK)
+    {
+        QMessageBox::information(NULL, tr("GoSdk connection error"),
+            QString(tr("Error: GoSystem_EnableData:%1?")).arg(status),
+            QMessageBox::Discard);
+        return false;
+    }
+    return true;
+}
+
+/*
+* Receive timestamp information data
+*/
+void ZGetDataThread::timestamp(GoDataMsg dataObj)
+{
+    qDebug() << "----GO_DATA_MESSAGE_TYPE_STAMP: " << i;
+    GoStampMsg stampMsg = dataObj;
+    qDebug() << "\tStamp Message batch count: " << (k32u)GoStampMsg_Count(stampMsg);
+
+    for (j = 0; j < GoStampMsg_Count(stampMsg); j++)
+    {
+        GoStamp* stamp = GoStampMsg_At(stampMsg, j);
+        qDebug() << "\tTimestamp: " << stamp->timestamp;
+        qDebug() << "\tEncoder position at leading edge: " << stamp->encoder;
+        qDebug() << "\tFrame index: " << stamp->frameIndex;
+    }
+}
+
+/*
+* Receive measure information data
+*/
+void ZGetDataThread::measure(GoDataMsg dataObj, const QString& dtstr)
+{
+    qDebug() << "----GO_DATA_MESSAGE_TYPE_MEASUREMENT: " << i;
+    GoMeasurementMsg measurementMsg = dataObj;
+
+    qDebug() << "Measurement Message batch count: ", (k32u)GoMeasurementMsg_Count(measurementMsg);
+
+    for (k = 0; k < GoMeasurementMsg_Count(measurementMsg); ++k)
+    {
+        ZMeasurement data;
+        measurementData = GoMeasurementMsg_At(measurementMsg, k);
+        // 1. Retrieve the measurement ID
+        int l = GoMeasurementMsg_Id(measurementMsg);
+        data.dt = dtstr;
+        data.id = l;
+        data.value = measurementData->value;
+        data.decision = measurementData->decision;
+        data.decisionCode = measurementData->decisionCode;
+        //2. Retrieve the measurement from the set of tools using measurement ID
+
+        if (collection_tools != kNULL && (measurement = GoTools_FindMeasurementById(collection_tools, l)) != kNULL)
+        {
+            data.description = GoMeasurement_Name(measurement);
+        }
+        else
+        {
+            data.description = "---";
+        }
+        m_data->enqueue(data);
+    }
+}
+
 /*
 * Receive cloud points data e tranform it in obj 3d file
 */
@@ -292,6 +359,8 @@ void ZGetDataThread::getImage(GoDataMsg dataObj, const QString& picture)
             {
                 double z = ZOffset + ZResolution * data[colIdx];
                 surfaceBuffer[rowIdx][colIdx].z = z;
+                surfaceBuffer[rowIdx][colIdx].index = numofpoints + 1;
+
                 if (fobj != NULL)
                 {
                     fprintf(fobj, "\nv %.3f %.3f %.3f", x, y, z);
@@ -301,11 +370,12 @@ void ZGetDataThread::getImage(GoDataMsg dataObj, const QString& picture)
             else
             {
                 surfaceBuffer[rowIdx][colIdx].z = INVALID_RANGE_DOUBLE;
-                if (fobj != NULL)
+                surfaceBuffer[rowIdx][colIdx].index = 0;
+/*              if (fobj != NULL)
                 {
                     fprintf(fobj, "\nv %.3f %.3f -100.000", x, y);
                     numofpoints++;
-                }
+                }*/
             }
         }
     }
@@ -316,44 +386,20 @@ void ZGetDataThread::getImage(GoDataMsg dataObj, const QString& picture)
         {
             for (colIdx = 0; colIdx < (width - 1); colIdx++)
             {
-                int idxbase1 = rowIdx * width + colIdx;
-                int idxbase2 = (rowIdx + 1) * width + colIdx;
-                int ok1 = 1;
-                int ok2 = 1;
-
-                if (surfaceBuffer[rowIdx][colIdx].z == INVALID_RANGE_DOUBLE)
-                {
-                    ok1 = 0;
-                }
-                if (surfaceBuffer[rowIdx][colIdx + 1].z == INVALID_RANGE_DOUBLE)
-                {
-                    ok1 = 0;
-                    ok2 = 0;
-                }
-                if (surfaceBuffer[rowIdx + 1][colIdx].z == INVALID_RANGE_DOUBLE)
-                {
-                    ok1 = 0;
-                    ok2 = 0;
-                }
-                if (surfaceBuffer[rowIdx + 1][colIdx + 1].z == INVALID_RANGE_DOUBLE)
-                {
-                    ok2 = 0;
-                }
+                int idxbase00 = surfaceBuffer[rowIdx][colIdx].index;
+                int idxbase01 = surfaceBuffer[rowIdx][colIdx + 1].index;
+                int idxbase10 = surfaceBuffer[rowIdx + 1][colIdx].index;
+                int idxbase11 = surfaceBuffer[rowIdx + 1][colIdx + 1].index;
+                bool ok1 = (idxbase00 != 0) && (idxbase01 != 0) && (idxbase10 != 0);
+                bool ok2 = (idxbase01 != 0) && (idxbase10 != 0) && (idxbase11 != 0);
 
                 if (ok1)
                 {
-                    fprintf(fobj, "\nf %u %u %u",
-                        idxbase1 + 1,
-                        idxbase1 + 2,
-                        idxbase2 + 1);
-
+                    fprintf(fobj, "\nf %u %u %u", idxbase00, idxbase01, idxbase10);
                 }
                 if (ok2)
                 {
-                    fprintf(fobj, "\nf %u %u %u",
-                        idxbase1 + 2,
-                        idxbase2 + 2,
-                        idxbase2 + 1);
+                    fprintf(fobj, "\nf %u %u %u", idxbase01, idxbase11, idxbase10);
                 }
             }
         }

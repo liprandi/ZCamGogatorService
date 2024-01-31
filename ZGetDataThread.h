@@ -20,13 +20,19 @@ public:
     explicit ZGetDataThread(ZQueue<ZMeasurement>* queue, QObject* parent = nullptr);
     ~ZGetDataThread() override;
     void run() override;
+    inline void switchoff() 
+    {
+        m_quit = true;
+    };
 private:
     void getImage(GoDataMsg dataObj, const QString& picture);
     void readCollectionTools(GoSensor sensor, GoTools* collection_tools);
     void examineCollectionTools(GoTools collection_tools);
-
+    void timestamp(GoDataMsg dataObj);
+    void measure(GoDataMsg dataObj, const QString& dtstr);
+    bool reconnect();
 public:
-    void init(const QString& addr);
+    void init(const QString& addr, const QString& imagesDir);
 
 private:
      bool m_quit;
@@ -45,5 +51,6 @@ private:
      ZQueue<ZMeasurement>* m_data;
      QString m_job;
      bool    m_unsaved;
+     QString m_dir;
 };
 
