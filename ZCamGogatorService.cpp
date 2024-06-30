@@ -8,10 +8,10 @@ using namespace std::chrono_literals;
 
 ZCamGogatorService::ZCamGogatorService(QWidget *parent)
     : QMainWindow(parent)
-    , m_rr(&m_data_rr)
-    , m_rl(&m_data_rl)
-    , m_fr(&m_data_fr)
-    , m_fl(&m_data_fl)
+    , m_rr(m_data_rr)
+    , m_rl(m_data_rl)
+    , m_fr(m_data_fr)
+    , m_fl(m_data_fl)
 {
     ui.setupUi(this);
     m_rr.init("121.31.78.82", "./images/rr/");      // op40

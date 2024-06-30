@@ -17,7 +17,7 @@ class ZGetDataThread :public QThread
 {
     Q_OBJECT
 public:
-    explicit ZGetDataThread(ZQueue<ZMeasurement>* queue, QObject* parent = nullptr);
+    explicit ZGetDataThread(ZQueue<ZMeasurement>& queue, QObject* parent = nullptr);
     ~ZGetDataThread() override;
     void run() override;
     inline void switchoff() 
@@ -48,7 +48,7 @@ private:
      GoMeasurementData* measurementData;
      GoMeasurement measurement;
      GoTools collection_tools;
-     ZQueue<ZMeasurement>* m_data;
+     ZQueue<ZMeasurement>& m_data;
      QString m_job;
      bool    m_unsaved;
      QString m_dir;

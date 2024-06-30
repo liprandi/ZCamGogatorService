@@ -31,17 +31,10 @@ ZDatabase::~ZDatabase()
 bool ZDatabase::connect(const std::string& host, const std::string& user, const std::string& password, const std::string& database, int port)
 {
     // Configure Connection
-/*    std::string url = std::format("jdbc:mariadb://{}:{}/{}", host, port, database);
-    m_url = SQLString(url.data());
-    m_properties = Properties({
-                                {"user", user.data()}
-                              , {"password", password.data()}
-                              }); 
-                              */
     // Establish Connection
     try
     {
-//      m_conn = m_driver->connect(m_url, m_properties);
+
         m_conn = m_driver->connect(host.data(), user.data(), password.data());
     }
     catch(sql::SQLException& e)

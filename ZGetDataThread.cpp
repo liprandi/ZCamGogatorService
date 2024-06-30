@@ -23,7 +23,7 @@ typedef struct ProfilePoint
     unsigned long index;
 } ProfilePoint;
 
-ZGetDataThread::ZGetDataThread(ZQueue<ZMeasurement>* queue, QObject* parent) :
+ZGetDataThread::ZGetDataThread(ZQueue<ZMeasurement>& queue, QObject* parent) :
     QThread(parent)
     , m_quit(false)
     , m_run(false)
@@ -53,8 +53,6 @@ ZGetDataThread::~ZGetDataThread()
 
 void ZGetDataThread::init(const QString& addr, const QString& imagesDir)
 {
-    unsigned int i, j, k;
-
     m_dir = imagesDir;
     // construct Gocator API Library
     if ((status = GoSdk_Construct(&api)) != kOK)
@@ -107,7 +105,6 @@ void ZGetDataThread::init(const QString& addr, const QString& imagesDir)
 }
 void ZGetDataThread::run()
 {
-    unsigned int i, j, k;
     QDateTime dt = QDateTime::currentDateTime();
     QString dtstr = dt.toString("yyyy-MM-dd hh:mm:ss");
     QString pictstr = m_job + dt.toString("_yyyyMMddhhmmss.obj");
@@ -129,6 +126,7 @@ void ZGetDataThread::run()
         {
             // each result can have multiple data items
             // loop through all items in result message
+            bool data_valid = true;
             for (i = 0; i < GoDataSet_Count(dataset); ++i)
             {
                 GoDataMsg dataObj = GoDataSet_At(dataset, i);
@@ -146,29 +144,36 @@ void ZGetDataThread::run()
                         dt = QDateTime::currentDateTime();
                         dtstr = dt.toString("yyyy-MM-dd hh:mm:ss");
                         char filename[256];
-                        uint size;
+ 
                         kBool changed;
                         if (GoSensor_LoadedJob(sensor, filename, 256, &changed) == kOK)
                         {
                             m_job = QString(filename).replace(".job", "", Qt::CaseInsensitive);
+                            data_valid = (m_job.compare("INS3L") == 0 || m_job.compare("INS12L") == 0);
                             m_unsaved = changed;
                         }
-                        pictstr = m_dir + m_job + dt.toString("_yyyyMMddhhmmss.obj");
-                        readCollectionTools(sensor, &collection_tools);
-                        getImage(dataObj, pictstr);
-                        ZMeasurement data;
-                        data.dt = dtstr;
-                        data.id = m_unsaved ? 9998 : 9999;
-                        data.value = 0;
-                        data.decision = GO_DECISION_PASS;
-                        data.decisionCode = GO_DECISION_CODE_OK;
-                        data.description = pictstr;
-                        m_data->enqueue(data);
+                        if(data_valid)
+                        {
+                            pictstr = m_dir + m_job + dt.toString("_yyyyMMddhhmmss.obj");
+                            readCollectionTools(sensor, &collection_tools);
+                            getImage(dataObj, pictstr);
+                            ZMeasurement data;
+                            data.dt = dtstr;
+                            data.id = m_unsaved ? 9998 : 9999;
+                            data.value = 0;
+                            data.decision = GO_DECISION_PASS;
+                            data.decisionCode = GO_DECISION_CODE_OK;
+                            data.description = pictstr;
+                            m_data.enqueue(data);
+                        }
                     }
                     break;
                     case GO_DATA_MESSAGE_TYPE_MEASUREMENT:
                     {
-                        measure(dataObj, dtstr);
+                        if (data_valid)
+                        {
+                            measure(dataObj, dtstr);
+                        }
                     }
                     break;
                 /*     case GO_DATA_MESSAGE_TYPE_FEATURE_POINT:
@@ -196,8 +201,6 @@ void ZGetDataThread::run()
 }
 bool ZGetDataThread::reconnect()
 {
-    unsigned int i, j, k;
-
     // obtain GoSensor object by sensor IP address
     if ((status = GoSystem_FindSensorByIpAddress(system, &ipAddress, &sensor)) != kOK)
     {
@@ -278,7 +281,7 @@ void ZGetDataThread::measure(GoDataMsg dataObj, const QString& dtstr)
         {
             data.description = "---";
         }
-        m_data->enqueue(data);
+        m_data.enqueue(data);
     }
 }
 
@@ -304,8 +307,8 @@ void ZGetDataThread::getImage(GoDataMsg dataObj, const QString& picture)
     unsigned int width = (unsigned int)GoSurfaceMsg_Width(surfaceMsg);
     unsigned int length = (unsigned int)GoSurfaceMsg_Length(surfaceMsg);
 
-    printf("  Surface data width: %lu\n", (k32u)width);
-    printf("  Surface data length: %lu\n", (k32u)length);
+    // printf("  Surface data width: %lu\n", (k32u)width);
+    // printf("  Surface data length: %lu\n", (k32u)length);
 
     FILE* fobj = fopen(picture.toLatin1(), "w");
 
@@ -326,11 +329,17 @@ void ZGetDataThread::getImage(GoDataMsg dataObj, const QString& picture)
     {
 
         surfaceBuffer = (ProfilePoint **)(malloc(length * sizeof(ProfilePoint*)));
-
-        for (j = 0; j < length; j++)
+        if (surfaceBuffer)
         {
-            surfaceBuffer[j] = (ProfilePoint*)(malloc(width * sizeof(ProfilePoint)));
+            for (j = 0; j < length; j++)
+            {
+                surfaceBuffer[j] = (ProfilePoint*)(malloc(width * sizeof(ProfilePoint)));
+                if (!surfaceBuffer[j])
+                    exit(-201);
+            }
         }
+        else
+            exit(-200);
 
         surfaceBufferHeight = (k32u)length;
     }
